@@ -80,7 +80,6 @@ class SuperAgentMongoDB:
     def _init_mongodb(self):
         """Inicializa todas las colecciones de MongoDB necesarias"""
         try:
-        try:
             # Configuración robusta de SSL con certifi para entornos Linux/Render
             self.client = MongoClient(
                 self.mongodb_uri,
