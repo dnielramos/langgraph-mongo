@@ -23,7 +23,6 @@ from langgraph.checkpoint.memory import MemorySaver
 
 # MongoDB imports
 from pymongo import MongoClient, ASCENDING, DESCENDING
-from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.errors import ConnectionFailure
 import certifi # Certificados SSL actualizados para conexión segura en nube
 
@@ -69,13 +68,15 @@ class SuperAgentMongoDB:
         self.voyage_api_key = os.getenv('VOYAGE_API_KEY')
         self.mongodb_uri = os.getenv('MONGODB_URI')
         self.db_name = os.getenv('MONGODB_DB_NAME', 'super_agent_db')
+        self.mock_mode = False
         
-        if not self.cerebras_api_key:
-            raise ValueError("CEREBRAS_API_KEY no está configurada en el .env")
-        if not self.voyage_api_key:
-            raise ValueError("VOYAGE_API_KEY no está configurada en el .env")
-        if not self.mongodb_uri:
-            raise ValueError("MONGODB_URI no está configurada en el .env")
+        if not self.cerebras_api_key or not self.voyage_api_key or not self.mongodb_uri:
+            logger.warning("⚠️ Faltan variables de entorno. Iniciando en modo MOCK para diagnóstico.")
+            self.mock_mode = True
+            # Valores dummy para permitir arranque
+            self.cerebras_api_key = self.cerebras_api_key or "dummy_key"
+            self.voyage_api_key = self.voyage_api_key or "dummy_key"
+            self.mongodb_uri = self.mongodb_uri or "mongodb://dummy:dummy@localhost:27017/dummy"
     
     def _init_mongodb(self):
         """Inicializa todas las colecciones de MongoDB necesarias"""
@@ -83,8 +84,14 @@ class SuperAgentMongoDB:
             # Configuración robusta de SSL con certifi para entornos Linux/Render
             self.client = MongoClient(
                 self.mongodb_uri,
-                tlsCAFile=certifi.where()
+                tlsCAFile=certifi.where(),
+                serverSelectionTimeoutMS=5000  # Timeout rápido si no conecta
             )
+
+            if not self.mock_mode:
+                # Verificar conexión real
+                self.client.admin.command('ping')
+
             self.db = self.client[self.db_name]
             
             # Colecciones especializadas
@@ -95,15 +102,22 @@ class SuperAgentMongoDB:
             self.tools_col = self.db["tools_usage"]
             self.errors_col = self.db["errors"]
             
-            # Índices para rendimiento
-            self.chat_history_col.create_index([("user_id", ASCENDING), ("timestamp", DESCENDING)])
-            self.documents_col.create_index([("content", "text")])
-            self.sessions_col.create_index([("last_active", DESCENDING)], expireAfterSeconds=86400)  # 24h TTL
-            
-            logger.info("✅ Conexión exitosa a MongoDB Atlas - ¡Tu cerebro central está activo!")
-        except ConnectionFailure as e:
-            logger.error(f"❌ Error conectando a MongoDB Atlas: {e}")
-            raise
+            if not self.mock_mode:
+                # Índices para rendimiento
+                self.chat_history_col.create_index([("user_id", ASCENDING), ("timestamp", DESCENDING)])
+                self.documents_col.create_index([("content", "text")])
+                self.sessions_col.create_index([("last_active", DESCENDING)], expireAfterSeconds=86400)  # 24h TTL
+                logger.info("✅ Conexión exitosa a MongoDB Atlas - ¡Tu cerebro central está activo!")
+            else:
+                logger.info("⚠️ Modo Mock: MongoDB no conectado realmente.")
+
+        except Exception as e:
+            if self.mock_mode:
+                logger.warning(f"⚠️ Error MongoDB ignorado en modo mock: {e}")
+                # Mock objects si es necesario
+            else:
+                logger.error(f"❌ Error conectando a MongoDB Atlas: {e}")
+                raise
     
     def _init_vector_store(self):
         """Inicializa el vector store para RAG con MongoDB Atlas y VoyageAI"""
@@ -539,10 +553,17 @@ Responde de manera útil, precisa y basándote en el contexto cuando esté dispo
         
         @self.app_web.websocket("/ws/{user_id}/{session_id}")
         async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str):
-            await websocket.accept()
-            logger.info(f"🔌 Nueva conexión WebSocket: user_id={user_id}, session_id={session_id}")
-            
             try:
+                await websocket.accept()
+                logger.info(f"🔌 Nueva conexión WebSocket ACEPTADA: user_id={user_id}, session_id={session_id}")
+            except Exception as e:
+                logger.error(f"❌ Error aceptando WebSocket: {e}")
+                return
+
+            try:
+                if self.mock_mode:
+                     await websocket.send_json({"type": "final_response", "data": {"response": "⚠️ MODO DIAGNÓSTICO: Backend en modo mock (faltan credenciales). La conexión WebSocket funciona.", "timestamp": datetime.utcnow().isoformat()}})
+
                 while True:
                     data = await websocket.receive_text()
                     
