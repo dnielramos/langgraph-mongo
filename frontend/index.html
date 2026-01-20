@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NOVA - Super Agente Inteligente</title>
+    <meta name="description" content="Chat con NOVA, tu asistente inteligente con memoria persistente y RAG">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        nova: {
+                            primary: '#6366f1',
+                            secondary: '#8b5cf6',
+                            accent: '#22d3ee',
+                            dark: '#0f172a',
+                            darker: '#020617',
+                            surface: '#1e293b',
+                            surfaceLight: '#334155',
+                        }
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'gradient': 'gradient 8s linear infinite',
+                        'float': 'float 3s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        gradient: {
+                            '0%, 100%': { backgroundPosition: '0% 50%' },
+                            '50%': { backgroundPosition: '100% 50%' },
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-10px)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+            background-size: 400% 400%;
+            animation: gradient 15s ease infinite;
+        }
+
+        .glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+        }
+
+        .glass-light {
+            background: rgba(51, 65, 85, 0.5);
+            backdrop-filter: blur(8px);
+        }
+
+        .glow {
+            box-shadow: 0 0 30px rgba(99, 102, 241, 0.3);
+        }
+
+        .message-user {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        }
+
+        .message-ai {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+        }
+
+        .typing-indicator span {
+            animation: typing 1.4s infinite;
+            display: inline-block;
+        }
+
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+
+            0%,
+            60%,
+            100% {
+                transform: translateY(0);
+            }
+
+            30% {
+                transform: translateY(-8px);
+            }
+        }
+
+        .scrollbar-custom::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .scrollbar-custom::-webkit-scrollbar-track {
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 3px;
+        }
+
+        .scrollbar-custom::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.5);
+            border-radius: 3px;
+        }
+
+        .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+            background: rgba(99, 102, 241, 0.7);
+        }
+
+        .input-glow:focus {
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .connection-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse-dot 2s infinite;
+        }
+
+        @keyframes pulse-dot {
+
+            0%,
+            100% {
+                opacity: 1;
+                box-shadow: 0 0 0 0 currentColor;
+            }
+
+            50% {
+                opacity: 0.8;
+                box-shadow: 0 0 0 8px transparent;
+            }
+        }
+    </style>
+</head>
+
+<body class="min-h-screen font-sans text-white antialiased">
+
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar - Documents Panel -->
+        <aside id="sidebar"
+            class="w-80 glass border-r border-indigo-500/20 flex flex-col transform transition-transform duration-300 lg:translate-x-0 -translate-x-full lg:relative absolute z-30 h-full">
+            <!-- Sidebar Header -->
+            <div class="p-5 border-b border-indigo-500/20">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center glow">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                            </path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h2 class="font-semibold text-white">Base de Conocimiento</h2>
+                        <p class="text-xs text-slate-400">Añade documentos para RAG</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Document Input -->
+            <div class="flex-1 p-5 overflow-y-auto scrollbar-custom">
+                <form id="ingestForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Contenido del Documento</label>
+                        <textarea id="documentContent" rows="8"
+                            class="w-full px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-600/50 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 input-glow resize-none scrollbar-custom transition-all"
+                            placeholder="Pega aquí el contenido que deseas añadir a la base de conocimiento..."></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Tipo de Documento</label>
+                        <select id="documentType"
+                            class="w-full px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-600/50 text-white focus:outline-none focus:border-indigo-500/50 transition-all">
+                            <option value="general">General</option>
+                            <option value="product">Producto</option>
+                            <option value="documentation">Documentación</option>
+                            <option value="faq">FAQ</option>
+                            <option value="policy">Política</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Nombre (opcional)</label>
+                        <input type="text" id="documentName"
+                            class="w-full px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-600/50 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 input-glow transition-all"
+                            placeholder="Nombre identificador...">
+                    </div>
+
+                    <button type="submit"
+                        class="w-full btn-primary text-white font-medium py-3 px-6 rounded-xl flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12">
+                            </path>
+                        </svg>
+                        Subir a Base de Conocimiento
+                    </button>
+                </form>
+
+                <!-- Upload Status -->
+                <div id="uploadStatus" class="mt-4 hidden">
+                    <div class="glass-light rounded-xl p-4">
+                        <div class="flex items-center gap-3">
+                            <div id="statusIcon" class="w-8 h-8 rounded-full flex items-center justify-center"></div>
+                            <div>
+                                <p id="statusText" class="text-sm font-medium"></p>
+                                <p id="statusDetail" class="text-xs text-slate-400"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar Footer -->
+            <div class="p-4 border-t border-indigo-500/20">
+                <div class="text-xs text-slate-500 text-center">
+                    Los documentos se procesan y almacenan como embeddings vectoriales
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="flex-1 flex flex-col min-w-0">
+            <!-- Chat Header -->
+            <header class="glass border-b border-indigo-500/20 p-4 flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <!-- Mobile Menu Button -->
+                    <button id="menuBtn" class="lg:hidden p-2 rounded-lg hover:bg-slate-700/50 transition-colors">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 6h16M4 12h16M4 18h16"></path>
+                        </svg>
+                    </button>
+
+                    <div class="flex items-center gap-3">
+                        <div class="relative">
+                            <div
+                                class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-400 flex items-center justify-center glow animate-float">
+                                <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z">
+                                    </path>
+                                </svg>
+                            </div>
+                            <div id="connectionStatus" class="absolute -bottom-1 -right-1 connection-dot bg-yellow-500">
+                            </div>
+                        </div>
+                        <div>
+                            <h1
+                                class="text-xl font-bold bg-gradient-to-r from-indigo-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent">
+                                NOVA</h1>
+                            <p id="connectionText" class="text-xs text-slate-400">Conectando...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <button id="clearChat"
+                        class="p-2 rounded-lg hover:bg-slate-700/50 transition-colors text-slate-400 hover:text-white"
+                        title="Limpiar chat">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+                            </path>
+                        </svg>
+                    </button>
+                    <div class="text-right hidden sm:block">
+                        <p class="text-xs text-slate-500">Session</p>
+                        <p id="sessionId" class="text-xs font-mono text-slate-400">-</p>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Messages Container -->
+            <div id="messagesContainer" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 scrollbar-custom">
+                <!-- Welcome Message -->
+                <div class="flex items-start gap-3 animate-fadeIn">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z">
+                            </path>
+                        </svg>
+                    </div>
+                    <div class="message-ai rounded-2xl rounded-tl-md p-4 max-w-2xl">
+                        <p class="text-slate-200">
+                            ¡Hola! 👋 Soy <strong class="text-indigo-400">NOVA</strong>, tu Super Asistente Inteligente
+                            con memoria persistente.
+                        </p>
+                        <p class="text-slate-300 mt-2">
+                            Puedo ayudarte a buscar productos, realizar investigaciones web en tiempo real, y responder
+                            tus preguntas usando mi base de conocimiento.
+                        </p>
+                        <p class="text-slate-400 mt-2 text-sm">
+                            💡 Tip: Usa el panel izquierdo para añadir documentos a mi base de conocimiento y podré
+                            usarlos para responder tus preguntas.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Typing Indicator -->
+            <div id="typingIndicator" class="px-4 sm:px-6 pb-2 hidden">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z">
+                            </path>
+                        </svg>
+                    </div>
+                    <div class="glass-light rounded-2xl rounded-tl-md px-4 py-3">
+                        <div class="typing-indicator flex items-center gap-1 text-indigo-400">
+                            <span class="w-2 h-2 bg-current rounded-full"></span>
+                            <span class="w-2 h-2 bg-current rounded-full"></span>
+                            <span class="w-2 h-2 bg-current rounded-full"></span>
+                            <span class="ml-2 text-sm text-slate-400" id="thinkingText">Analizando...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4 sm:p-6 glass border-t border-indigo-500/20">
+                <form id="chatForm" class="flex items-end gap-3">
+                    <div class="flex-1 relative">
+                        <textarea id="messageInput" rows="1"
+                            class="w-full px-5 py-4 pr-14 rounded-2xl bg-slate-800/50 border border-slate-600/50 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 input-glow resize-none scrollbar-custom transition-all"
+                            placeholder="Escribe tu mensaje..." style="max-height: 150px;"></textarea>
+                    </div>
+                    <button type="submit" id="sendBtn"
+                        class="btn-primary p-4 rounded-2xl text-white disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                        disabled>
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                        </svg>
+                    </button>
+                </form>
+                <p class="text-xs text-slate-500 text-center mt-3">
+                    NOVA usa Cerebras Llama 3.3 70B + VoyageAI + MongoDB Atlas para memoria persistente
+                </p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Overlay for mobile sidebar -->
+    <div id="overlay" class="fixed inset-0 bg-black/50 z-20 hidden lg:hidden" onclick="toggleSidebar()"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
