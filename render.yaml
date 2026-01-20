@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: nova-agent
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: VOYAGE_API_KEY
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: super_agent_db
