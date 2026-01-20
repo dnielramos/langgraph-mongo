@@ -23,7 +23,9 @@ from langgraph.checkpoint.memory import MemorySaver
 
 # MongoDB imports
 from pymongo import MongoClient, ASCENDING, DESCENDING
+from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.errors import ConnectionFailure
+import certifi # Certificados SSL actualizados para conexión segura en nube
 
 # Para streaming en tiempo real (simulando Socket.IO)
 from fastapi import FastAPI, WebSocket, Request
@@ -78,7 +80,12 @@ class SuperAgentMongoDB:
     def _init_mongodb(self):
         """Inicializa todas las colecciones de MongoDB necesarias"""
         try:
-            self.client = MongoClient(self.mongodb_uri)
+        try:
+            # Configuración robusta de SSL con certifi para entornos Linux/Render
+            self.client = MongoClient(
+                self.mongodb_uri,
+                tlsCAFile=certifi.where()
+            )
             self.db = self.client[self.db_name]
             
             # Colecciones especializadas
