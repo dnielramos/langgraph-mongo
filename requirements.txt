@@ -11,9 +11,12 @@ langchain-community
 duckduckgo-search
 motor>=3.3.0
 websockets>=12.0
-regex
+regex>=2023.10.3
 pydantic>=2.0.0
 certifi>=2024.0.0
 orjson
 langgraph
 langchain-text-splitters
+langchain-openai
+openai
+langchain-core
