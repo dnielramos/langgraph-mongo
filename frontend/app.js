@@ -104,7 +104,10 @@ class NovaChat {
     }
     
     connect() {
-        const wsUrl = `ws://localhost:8000/ws/${this.userId}/${this.sessionId}`;
+        // Determine protocol based on current page protocol
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.host;
+        const wsUrl = `${protocol}//${host}/ws/${this.userId}/${this.sessionId}`;
         
         this.updateConnectionStatus('connecting', 'Conectando...');
         
@@ -316,7 +319,8 @@ class NovaChat {
         this.showUploadStatus('loading', 'Subiendo...', 'Procesando documento');
         
         try {
-            const response = await fetch('http://localhost:8000/ingest', {
+            // Use relative path for API calls to adapt to any deployment
+            const response = await fetch('/ingest', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
