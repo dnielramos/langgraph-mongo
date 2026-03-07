@@ -4,10 +4,17 @@ import asyncio
 from typing import Dict, List, Any, TypedDict, Annotated, Literal, Optional
 from datetime import datetime
 import logging
+import certifi
+from dotenv import load_dotenv
+
+# Cargar variables de entorno al inicio
+load_dotenv()
 
 # LangChain y LangGraph imports
 from langchain_cerebras import ChatCerebras
-from langchain_voyageai import VoyageAIEmbeddings
+from langchain.embeddings.base import Embeddings
+import voyageai
+import httpx
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -17,24 +24,26 @@ from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.output_parsers import StrOutputParser
-from langgraph.graph import StateGraph, END, START
+from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
 # MongoDB imports
 from pymongo import MongoClient, ASCENDING, DESCENDING
-from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.errors import ConnectionFailure
-import certifi # Certificados SSL actualizados para conexión segura en nube
 
-# Para streaming en tiempo real (simulando Socket.IO)
+# FastAPI imports
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 # Configuración de logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger("SuperAgentMongoDB")
 
 class AgentState(TypedDict):
@@ -67,6 +76,7 @@ class SuperAgentMongoDB:
         """Carga variables de entorno críticas"""
         self.cerebras_api_key = os.getenv('CEREBRAS_API_KEY')
         self.voyage_api_key = os.getenv('VOYAGE_API_KEY')
+        self.voyage_base_url = os.getenv('VOYAGE_BASE_URL', 'https://api.voyageai.com/v1')
         self.mongodb_uri = os.getenv('MONGODB_URI')
         self.db_name = os.getenv('MONGODB_DB_NAME', 'super_agent_db')
         
@@ -80,11 +90,13 @@ class SuperAgentMongoDB:
     def _init_mongodb(self):
         """Inicializa todas las colecciones de MongoDB necesarias"""
         try:
-        try:
             # Configuración robusta de SSL con certifi para entornos Linux/Render
             self.client = MongoClient(
                 self.mongodb_uri,
-                tlsCAFile=certifi.where()
+                tlsCAFile=certifi.where(),
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
+                socketTimeoutMS=5000
             )
             self.db = self.client[self.db_name]
             
@@ -101,38 +113,98 @@ class SuperAgentMongoDB:
             self.documents_col.create_index([("content", "text")])
             self.sessions_col.create_index([("last_active", DESCENDING)], expireAfterSeconds=86400)  # 24h TTL
             
+            # Verificar conexión
+            self.client.admin.command('ping')
             logger.info("✅ Conexión exitosa a MongoDB Atlas - ¡Tu cerebro central está activo!")
         except ConnectionFailure as e:
             logger.error(f"❌ Error conectando a MongoDB Atlas: {e}")
             raise
+        except Exception as e:
+            logger.error(f"❌ Error inesperado en MongoDB: {e}")
+            raise
     
     def _init_vector_store(self):
         """Inicializa el vector store para RAG con MongoDB Atlas y VoyageAI"""
-        self.embeddings = VoyageAIEmbeddings(
-            voyage_api_key=self.voyage_api_key,
-            model="voyage-4-large"
-        )
-        
-        self.vector_store = MongoDBAtlasVectorSearch(
-            collection=self.embeddings_col,
-            embedding=self.embeddings,
-            index_name="vector_index",
-            text_key="content",
-            embedding_key="embedding"
-        )
-        
-        logger.info("🧠 Vector Store con VoyageAI inicializado - Listo para recuperación semántica!")
+        try:
+            # Clase wrapper para ignorar las validaciones estrictas de pydantic de langchain_voyageai
+            # y poder inyectar la base_url de MongoDB Atlas AI (las keys al-)
+            voyage_api_key = self.voyage_api_key
+            voyage_base_url = self.voyage_base_url
+
+            class MongoVoyageEmbeddings(Embeddings):
+                """Wrapper de VoyageAI usando peticiones HTTP directas al endpoint MongoDB Atlas AI."""
+                EMBED_MODEL = "voyage-3-large"
+
+                def __init__(self):
+                    self.api_key = voyage_api_key
+                    # Asegurar que la URL termine correctamente
+                    base = voyage_base_url.rstrip("/")
+                    if not base.endswith("/v1"):
+                        base += "/v1"
+                    self.base_url = base
+                    self.headers = {
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    }
+
+                def embed_documents(self, texts: list[str]) -> list[list[float]]:
+                    return self._get_embeddings(texts, "document")
+
+                def embed_query(self, text: str) -> list[float]:
+                    return self._get_embeddings([text], "query")[0]
+                
+                def _get_embeddings(self, texts: list[str], input_type: str) -> list[list[float]]:
+                    payload = {
+                        "input": texts,
+                        "model": self.EMBED_MODEL,
+                        "input_type": input_type
+                    }
+                    try:
+                        response = httpx.post(
+                            f"{self.base_url}/embeddings",
+                            headers=self.headers,
+                            json=payload,
+                            timeout=30.0
+                        )
+                        response.raise_for_status()
+                        data = response.json()
+                        # VoyageAI devuelve data[i].embedding
+                        return [item["embedding"] for item in data.get("data", [])]
+                    except Exception as e:
+                        logger.error(f"Error HTTP obteniendo embeddings de MongoDB Atlas AI: {e}")
+                        if hasattr(e, "response") and e.response:
+                            logger.error(f"Detalle API: {e.response.text}")
+                        raise
+
+            self.embeddings = MongoVoyageEmbeddings()
+
+            self.vector_store = MongoDBAtlasVectorSearch(
+                collection=self.embeddings_col,
+                embedding=self.embeddings,
+                index_name="vector_index",
+                text_key="content",
+                embedding_key="embedding"
+            )
+
+            logger.info("🧠 Vector Store con VoyageAI (MongoDB Atlas AI) inicializado - Listo para recuperación semántica!")
+        except Exception as e:
+            logger.error(f"❌ Error inicializando vector store: {e}")
+            raise
     
     def _init_llm(self):
         """Inicializa el modelo de lenguaje Cerebras con capacidades avanzadas"""
-        self.llm = ChatCerebras(
-            model="llama-3.3-70b",
-            api_key=self.cerebras_api_key,
-            temperature=0.3,
-            max_tokens=2000
-        )
-        
-        logger.info("🤖 Cerebras Llama 3.3 70B inicializado - ¡Potencia máxima activada!")
+        try:
+            self.llm = ChatCerebras(
+                model=os.getenv("CEREBRAS_MODEL"),
+                api_key=self.cerebras_api_key,
+                temperature=0.3,
+                max_tokens=2000
+            )
+            
+            logger.info("🤖 Cerebras " + os.getenv("CEREBRAS_MODEL") + " inicializado - ¡Potencia máxima activada!")    
+        except Exception as e:
+            logger.error(f"❌ Error inicializando LLM: {e}")
+            raise
     
     def _init_tools(self):
         """Crea herramientas inteligentes que interactúan con MongoDB"""
@@ -216,7 +288,8 @@ class SuperAgentMongoDB:
                 context_summary = []
                 for msg in history:
                     role = "Usuario" if msg["role"] == "human" else "Asistente"
-                    context_summary.append(f"{role} ({msg['timestamp'].strftime('%Y-%m-%d %H:%M')}): {msg['message']}")
+                    timestamp_str = msg['timestamp'].strftime('%Y-%m-%d %H:%M') if hasattr(msg['timestamp'], 'strftime') else str(msg['timestamp'])
+                    context_summary.append(f"{role} ({timestamp_str}): {msg['message']}")
                 
                 return "\n".join(reversed(context_summary))
             
@@ -231,13 +304,13 @@ class SuperAgentMongoDB:
         """Construye el grafo de estados con LangGraph para flujo de trabajo por pasos"""
         
         # Prompt del sistema con instrucciones para usar SIEMPRE el contexto
-        system_prompt = """Eres NOVA, un asistente de IA empresarial con acceso a una base de conocimiento.
+        system_prompt = """Eres Daniel, un asistente de IA empresarial con acceso a una base de conocimiento.
 
 **REGLA CRÍTICA: Si se proporciona contexto de la base de conocimiento, DEBES usarlo para responder.**
 
 Comportamiento:
 1. Si el contexto contiene información relevante a la pregunta, USA ESA INFORMACIÓN.
-2. Cita el contenido del contexto de manera precisa.
+2. Cita el contenido del contexto de manera precisa. Busca en el contexto la información que necesitas y úsala para responder.
 3. Si el contexto NO tiene información relevante, indica que "no encontré información sobre esto en mi base de conocimiento".
 4. NUNCA inventes información que no esté en el contexto.
 5. Si el usuario pregunta sobre algo específico (persona, empresa, fecha), busca exactamente eso en el contexto.
@@ -570,13 +643,19 @@ Responde de manera útil, precisa y basándote en el contexto cuando esté dispo
             
             except Exception as e:
                 logger.error(f"❌ Error en WebSocket: {e}")
-                await websocket.send_json({
-                    "type": "error",
-                    "data": {"message": f"Error en la conexión: {str(e)}"}
-                })
+                try:
+                    await websocket.send_json({
+                        "type": "error",
+                        "data": {"message": f"Error en la conexión: {str(e)}"}
+                    })
+                except:
+                    pass
             
             finally:
-                await websocket.close()
+                try:
+                    await websocket.close()
+                except:
+                    pass
                 logger.info(f"🔌 Conexión WebSocket cerrada: user_id={user_id}, session_id={session_id}")
         
         # Endpoint REST para ingestar documentos
@@ -621,7 +700,7 @@ Responde de manera útil, precisa y basándote en el contexto cuando esté dispo
         """Inicia el servidor localmente (método legacy para desarrollo)"""
         import uvicorn
         logger.info("="*60)
-        logger.info("🚀 ¡SUPER AGENTE NOVA ACTIVADO LOCALMENTE!")
+        logger.info("🚀 ¡SUPER AGENTE ACTIVADO LOCALMENTE!")
         logger.info("="*60)
         # Ingesta de ejemplo en background para no bloquear
         asyncio.create_task(self._ingest_example_knowledge())
@@ -633,8 +712,7 @@ Responde de manera útil, precisa y basándote en el contexto cuando esté dispo
     
     async def _ingest_example_knowledge(self):
         """Ingresa conocimiento de ejemplo para demostración (opcional, no bloquea el servidor)"""
-        # ... (código existente pero protegido para ejecutar solo si la colección está vacía idealmente)
-        # Por simplicidad, lo mantenemos igual pero loggeando
+        # Verificar si ya hay documentos
         if self.documents_col.count_documents({}) > 0:
             logger.info("📚 La base de conocimiento ya tiene datos, saltando ingesta de ejemplo.")
             return
@@ -643,8 +721,8 @@ Responde de manera útil, precisa y basándote en el contexto cuando esté dispo
         # Ejemplo de productos
         products = [
             {
-                "content": "Laptop Gaming Pro X7 - Procesador Intel i9, 32GB RAM, 1TB SSD, RTX 4080, pantalla 144Hz",
-                "metadata": {"name": "Laptop Gaming Pro X7", "price": 1899.99, "stock": 15, "rating": 4.8, "type": "product"}
+                "content": "Dell Pro 15 - Procesador Intel i9, 32GB RAM, 1TB SSD, RTX 4080, pantalla 144Hz",
+                "metadata": {"name": "Dell Pro 15", "price": 1899.99, "stock": 15, "rating": 4.8, "type": "product"}
             },
             {
                 "content": "Monitor UltraWide 34 pulgadas - Resolución 3440x1440, 144Hz, HDR10, tiempo de respuesta 1ms",
@@ -667,33 +745,47 @@ Responde de manera útil, precisa y basándote en el contexto cuando esté dispo
 # Configuración para Producción (Render / Uvicorn)
 # -----------------------------------------------------------------------------
 
-# Cargar variables de entorno explícitamente para asegurar disponibilidad
-from dotenv import load_dotenv
-load_dotenv()
-
 # Instancia global del agente
 try:
     nova_agent = SuperAgentMongoDB()
-    app = nova_agent.app_web  # Objeto ASGI expuesto para servidores de producción
 
-    # Evento de arranque para tareas de fondo
-    @app.on_event("startup")
-    async def startup_event():
-        logger.info("🚀 NOVA iniciando en entorno de producción/local")
-        # Ejecutar ingesta en background sin bloquear el arranque
-        asyncio.create_task(nova_agent._ingest_example_knowledge())
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        """Gestiona el ciclo de vida de la aplicación (reemplaza on_event)"""
+        # Startup
+        logger.info("🚀 NOVA iniciando en entorno de producción")
+        try:
+            asyncio.create_task(nova_agent._ingest_example_knowledge())
+        except Exception as e:
+            logger.warning(f"⚠️ No se pudo programar ingesta de ejemplo: {e}")
+        yield
+        # Shutdown (aquí se puede cerrar la conexión MongoDB si es necesario)
+        logger.info("🛑 NOVA cerrando...")
+
+    # Reasignar lifespan a la app web existente
+    nova_agent.app_web.router.lifespan_context = lifespan
+    app = nova_agent.app_web  # Objeto ASGI expuesto para servidores de producción
 
 except Exception as e:
     logger.critical(f"🔥 Error fatal iniciando NOVA: {e}")
     raise
 
-# Entrada principal para desarrollo local con 'python main.py'
 if __name__ == "__main__":
     import uvicorn
-    import sys
     
+    # Obtener puerto de Render o usar 8000 por defecto
     port = int(os.getenv("PORT", 8000))
-    logger.info(f"📍 Iniciando servidor local en puerto {port}...")
+    host = "0.0.0.0"  # Para Render y producción
     
-    # Usar la instancia 'app' global
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    logger.info(f"📍 Iniciando servidor en {host}:{port}...")
+    
+    # Configuración optimizada para producción
+    uvicorn.run(
+        "main:app",  # El módulo es 'main' porque el archivo se llama main.py
+        host=host,
+        port=port,
+        workers=1,  # Render maneja el escalado
+        log_level="info",
+        reload=False,  # Desactivar reload en producción
+        timeout_keep_alive=60,
+    )
