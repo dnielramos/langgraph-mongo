@@ -15,6 +15,7 @@ from langchain_cerebras import ChatCerebras
 from langchain.embeddings.base import Embeddings
 import voyageai
 import httpx
+import certifi
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
