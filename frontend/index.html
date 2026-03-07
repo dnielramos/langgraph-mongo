@@ -48,9 +48,7 @@
     </script>
     <style>
         body {
-            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
-            background-size: 400% 400%;
-            animation: gradient 15s ease infinite;
+            background-color: #0f172a;
         }
 
         .glass {
@@ -64,17 +62,13 @@
             backdrop-filter: blur(8px);
         }
 
-        .glow {
-            box-shadow: 0 0 30px rgba(99, 102, 241, 0.3);
-        }
-
         .message-user {
-            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            background-color: #3b82f6;
         }
 
         .message-ai {
-            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-            border: 1px solid rgba(99, 102, 241, 0.3);
+            background-color: #1e293b;
+            border: 1px solid rgba(148, 163, 184, 0.2);
         }
 
         .typing-indicator span {
@@ -121,18 +115,13 @@
             background: rgba(99, 102, 241, 0.7);
         }
 
-        .input-glow:focus {
-            box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
-        }
-
         .btn-primary {
-            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            background-color: #3b82f6;
             transition: all 0.3s ease;
         }
 
         .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.4);
+            background-color: #2563eb;
         }
 
         .btn-primary:active {
@@ -172,7 +161,7 @@
             <div class="p-5 border-b border-indigo-500/20">
                 <div class="flex items-center gap-3">
                     <div
-                        class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center glow">
+                        class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
                         <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
@@ -192,7 +181,7 @@
                     <div>
                         <label class="block text-sm font-medium text-slate-300 mb-2">Contenido del Documento</label>
                         <textarea id="documentContent" rows="8"
-                            class="w-full px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-600/50 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 input-glow resize-none scrollbar-custom transition-all"
+                            class="w-full px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-600/50 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50  resize-none scrollbar-custom transition-all"
                             placeholder="Pega aquí el contenido que deseas añadir a la base de conocimiento..."></textarea>
                     </div>
 
@@ -211,7 +200,7 @@
                     <div>
                         <label class="block text-sm font-medium text-slate-300 mb-2">Nombre (opcional)</label>
                         <input type="text" id="documentName"
-                            class="w-full px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-600/50 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 input-glow transition-all"
+                            class="w-full px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-600/50 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50  transition-all"
                             placeholder="Nombre identificador...">
                     </div>
 
@@ -264,7 +253,7 @@
                     <div class="flex items-center gap-3">
                         <div class="relative">
                             <div
-                                class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-400 flex items-center justify-center glow animate-float">
+                                class="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center animate-float">
                                 <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                         d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z">
@@ -276,7 +265,7 @@
                         </div>
                         <div>
                             <h1
-                                class="text-xl font-bold bg-gradient-to-r from-indigo-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent">
+                                class="text-xl font-bold text-blue-400">
                                 NOVA</h1>
                             <p id="connectionText" class="text-xs text-slate-400">Conectando...</p>
                         </div>
@@ -305,7 +294,7 @@
                 <!-- Welcome Message -->
                 <div class="flex items-start gap-3 animate-fadeIn">
                     <div
-                        class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                        class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0">
                         <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z">
@@ -333,7 +322,7 @@
             <div id="typingIndicator" class="px-4 sm:px-6 pb-2 hidden">
                 <div class="flex items-center gap-3">
                     <div
-                        class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                        class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
                         <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z">
@@ -356,7 +345,7 @@
                 <form id="chatForm" class="flex items-end gap-3">
                     <div class="flex-1 relative">
                         <textarea id="messageInput" rows="1"
-                            class="w-full px-5 py-4 pr-14 rounded-2xl bg-slate-800/50 border border-slate-600/50 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 input-glow resize-none scrollbar-custom transition-all"
+                            class="w-full px-5 py-4 pr-14 rounded-2xl bg-slate-800/50 border border-slate-600/50 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50  resize-none scrollbar-custom transition-all"
                             placeholder="Escribe tu mensaje..." style="max-height: 150px;"></textarea>
                     </div>
                     <button type="submit" id="sendBtn"
