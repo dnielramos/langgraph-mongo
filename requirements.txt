@@ -12,3 +12,4 @@ certifi
 python-dotenv
 duckduckgo-search
 websockets
+httpx
