@@ -216,43 +216,47 @@ class SuperAgentMongoDB:
     def _init_tools(self):
         """Crea herramientas inteligentes que interactúan con MongoDB"""
         @tool
-        async def search_products(query: str) -> str:
-            """Busca productos en la base de conocimiento usando búsqueda semántica"""
+        async def search_knowledge_base(query: str) -> str:
+            """Busca información en la base de conocimiento usando búsqueda semántica (sirve para personas, productos, contactos, etc.)"""
             try:
+                # Se busca en todos los documentos ingestados sin pre_filter
                 results = await self.vector_store.asimilarity_search(
                     query, 
-                    k=5,
-                    pre_filter={"type": "product"}
+                    k=5
                 )
                 
                 # Guardar uso de herramienta en MongoDB
                 self.tools_col.insert_one({
-                    "tool_name": "search_products",
+                    "tool_name": "search_knowledge_base",
                     "query": query,
                     "results_count": len(results),
                     "timestamp": datetime.utcnow(),
-                    "type": "product_search"
+                    "type": "general_search"
                 })
                 
                 if not results:
-                    return "No encontré productos relacionados con tu búsqueda. ¿Podrías ser más específico?"
+                    return "No encontré información relacionada con tu búsqueda en la base de conocimiento."
                 
                 formatted_results = []
                 for doc in results:
                     metadata = doc.metadata
-                    formatted_results.append(
-                        f"🔹 **{metadata.get('name', 'Producto sin nombre')}**\n"
-                        f"💰 Precio: ${metadata.get('price', 'N/A')}\n"
-                        f"⭐ Rating: {metadata.get('rating', 'N/A')}/5\n"
-                        f"📦 Stock: {metadata.get('stock', 'N/A')}\n"
-                        f"📝 Descripción: {doc.page_content[:100]}..."
-                    )
+                    # Formato flexible dependiendo si es producto o información general
+                    if metadata.get('type') == 'product':
+                        formatted_results.append(
+                            f"🔹 **{metadata.get('name', 'Producto')}**\n"
+                            f"💰 Precio: ${metadata.get('price', 'N/A')}\n"
+                            f"⭐ Rating: {metadata.get('rating', 'N/A')}/5\n"
+                            f"📦 Stock: {metadata.get('stock', 'N/A')}\n"
+                            f"📝 Descripción: {doc.page_content}"
+                        )
+                    else:
+                        formatted_results.append(f"📄 **Información general**: {doc.page_content}")
                 
                 return "\n\n".join(formatted_results)
             
             except Exception as e:
-                logger.error(f"Error en search_products: {e}")
-                return f"Error al buscar productos: {str(e)}"
+                logger.error(f"Error en search_knowledge_base: {e}")
+                return f"Error al buscar en la base de conocimiento: {str(e)}"
         
         @tool
         async def web_research(query: str) -> str:
@@ -304,7 +308,7 @@ class SuperAgentMongoDB:
                 logger.error(f"Error en analyze_conversation_context: {e}")
                 return "Error al analizar el contexto de conversación."
         
-        self.tools = [search_products, web_research, analyze_conversation_context]
+        self.tools = [search_knowledge_base, web_research, analyze_conversation_context]
         logger.info("🛠️ Herramientas inteligentes inicializadas - ¡Listas para acción!")
     
     def _build_graph(self):
@@ -355,7 +359,8 @@ Responde de manera útil, precisa y basándote en el contexto cuando esté dispo
                 # Extraer términos de búsqueda clave
                 search_terms = [term.strip() for term in latest_message.split() if len(term) > 2]
                 for term in search_terms[:5]:  # Limitar a 5 términos
-                    text_results = list(self.embeddings_col.find(
+                    # Buscar en la colección de documentos directamente para evitar problemas de índices incompletos
+                    text_results = list(self.documents_col.find(
                         {"content": {"$regex": term, "$options": "i"}},
                         {"content": 1, "metadata": 1, "_id": 0} # Incluir metadata para Document
                     ).limit(3))
@@ -389,19 +394,23 @@ Responde de manera útil, precisa y basándote en el contexto cuando esté dispo
                 return state
             
             logger.info("🔧 Usando herramientas inteligentes...")
+            latest_message = state["messages"][-1].content
             
-            # Aquí iría la lógica para llamar a las herramientas apropiadas
-            # Por simplicidad, simulamos el uso de herramientas
-            tool_result = "✅ Herramientas ejecutadas con éxito. Contexto adicional recuperado."
-            
-            state["tool_results"].append({
-                "tool": "auto_selected",
-                "result": tool_result,
-                "timestamp": datetime.utcnow().isoformat()
-            })
-            
+            # Como fallback por si el modelo no generó tool_calls nativos, 
+            # forzamos la búsqueda en la base de conocimiento manualmente
+            try:
+                # Ejecutar búsqueda síncrona en la base de conocimiento
+                tool_result = search_knowledge_base.invoke({"query": latest_message})
+                state["tool_results"].append({
+                    "tool": "search_knowledge_base",
+                    "result": tool_result,
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+                logger.info("✅ Búsqueda en conocimiento completada")
+            except Exception as e:
+                logger.error(f"Error ejecutando search_knowledge_base: {e}")
+                
             state["current_step"] = "tools_used"
-            logger.info("✅ Herramientas ejecutadas correctamente")
             return state
         
         def generate_response(state: AgentState) -> AgentState:
@@ -411,11 +420,12 @@ Responde de manera útil, precisa y basándote en el contexto cuando esté dispo
             # Construir contexto completo para el LLM
             context_parts = []
             
-            # Añadir contexto recuperado del vector store
+            # Añadir contexto recuperado del vector store o text search
             if state["context_retrieved"]:
                 context_parts.append("📚 **Contexto relevante de tu base de conocimiento:**")
-                for doc in state["context_retrieved"]:
-                    context_parts.append(f"- {doc.page_content[:200]}")
+                for i, doc in enumerate(state["context_retrieved"]):
+                    # No truncar el contenido, necesitamos toda la información
+                    context_parts.append(f"--- Documento {i+1} ---\n{doc.page_content}\n")
             
             # Añadir resultados de herramientas
             if state["tool_results"]:
@@ -425,6 +435,8 @@ Responde de manera útil, precisa y basándote en el contexto cuando esté dispo
             
             # Crear contexto completo
             full_context = "\n".join(context_parts) if context_parts else "Sin contexto adicional disponible."
+            
+            logger.info(f"=== CONTEXTO PARA LLM ===\n{full_context}\n=========================")
             
             # Generar respuesta
             response_chain = self.prompt | self.llm | StrOutputParser()
